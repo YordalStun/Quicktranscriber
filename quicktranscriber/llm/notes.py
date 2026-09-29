@@ -7,10 +7,12 @@ for every part, then the partial notes are merged into the final notes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
 import time
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .. import catalog
@@ -276,6 +278,49 @@ def _instructions(tpl: dict, extra: str) -> str:
     return "\n".join(parts)
 
 
+class PartCache:
+    """Notes already taken on parts of a long meeting, saved as they are written.
+
+    On a slow computer the parts of a long meeting take many minutes each; if the
+    app is closed or something fails before the notes are finished, the next run
+    picks up where the last one stopped. Entries are keyed by the exact prompt and
+    model, so any change (transcript, names, template, model...) starts afresh.
+    """
+
+    MAX_ENTRIES = 60
+
+    def __init__(self, path: Optional[Path], fresh: bool = False):
+        self.path = path
+        self.parts: dict[str, Any] = {}
+        if path and path.exists() and not fresh:
+            try:
+                self.parts = json.loads(path.read_text("utf-8")).get("parts") or {}
+            except (OSError, ValueError, AttributeError):
+                self.parts = {}
+
+    @staticmethod
+    def key(backend: Backend, prompt: str) -> str:
+        return hashlib.sha1(f"{backend.name}:{backend.model}\n{prompt}".encode("utf-8")).hexdigest()
+
+    def get(self, key: str) -> Optional[dict]:
+        value = self.parts.get(key)
+        return value if isinstance(value, dict) else None
+
+    def put(self, key: str, value: dict) -> None:
+        if not self.path:
+            return
+        self.parts.pop(key, None)
+        self.parts[key] = value
+        while len(self.parts) > self.MAX_ENTRIES:
+            self.parts.pop(next(iter(self.parts)))
+        try:
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"parts": self.parts}, ensure_ascii=False), "utf-8")
+            tmp.replace(self.path)
+        except OSError:
+            log.warning("Could not save notes progress", exc_info=True)
+
+
 def _reserve(ctx: int, base: int, share: int) -> int:
     """Room kept free in the context for the AI's answer: ``base``, less in a small context."""
     return max(256, min(base, ctx // share))
@@ -313,8 +358,10 @@ def generate(
     extra_instructions: str = "",
     progress: Optional[Callable[[float, str], None]] = None,
     cancelled: Optional[Callable[[], bool]] = None,
+    cache: Optional[PartCache] = None,
 ) -> dict[str, Any]:
     tpl = template(template_id)
+    cache = cache or PartCache(None)
     detail = DETAIL.get(detail_level, DETAIL["standard"])
     lang = _language_line(language)
     extra = _instructions(tpl, extra_instructions)
@@ -385,12 +432,21 @@ def generate(
                 f"{lang}\n\nTranscript:\n{text}"
             )
             messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
-            part = backend.chat_json(
+            key = PartCache.key(backend, prompt)
+            saved = cache.get(key)
+            if saved is not None:  # done in an earlier run that didn't finish
+                report(hi, f"Part {i + 1} of {len(chunks)} was already done")
+                partials.append(saved)
+                continue
+            part = _clean_partial(backend.chat_json(
                 messages, map_schema(tpl, detail), max_tokens=_max_out(backend, messages, detail["map_out"], 4),
                 cancelled=cancelled, on_token=on_token, on_progress=on_progress,
-            )
-            cut_short = cut_short or backend.last_truncated
-            partials.append(_clean_partial(part))
+            ))
+            if backend.last_truncated:
+                cut_short = True  # not saved: another run may get the whole part
+            else:
+                cache.put(key, part)
+            partials.append(part)
         report(0.8, "Combining the notes")
         partials = _condense(backend, partials, ctx - overhead - final_reserve, tpl, detail, lang, extra,
                              cancelled)

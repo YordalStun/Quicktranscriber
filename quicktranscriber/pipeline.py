@@ -640,6 +640,11 @@ def stage_notes(meeting: dict, opts: dict, ctx: JobContext, force: bool) -> None
     if not language or language == "auto":
         language = meeting.get("language") or None
     names = speaker_names(mid)
+    # Parts already written by an interrupted or failed run are reused - unless the user
+    # asked to rewrite notes that came out fine, which starts afresh.
+    row = db.one("SELECT notes, notes_meta FROM meetings WHERE id = ?", (mid,))
+    rewrite = bool(force and row and row["notes"] and not db.loads(row["notes_meta"], {}).get("last_error"))
+    cache = notes_mod.PartCache(paths.meeting_dir(mid) / "notes_parts.json", fresh=rewrite)
     try:
         notes = notes_mod.generate(
             backend, segs, names, meeting["duration"] or segs[-1]["end"],
@@ -649,6 +654,7 @@ def stage_notes(meeting: dict, opts: dict, ctx: JobContext, force: bool) -> None
             extra_instructions=opts.get("instructions") or "",
             progress=lambda v, m: ctx.progress(v, m),
             cancelled=ctx.cancelled,
+            cache=cache,
         )
     except InterruptedError:
         raise JobCancelled()

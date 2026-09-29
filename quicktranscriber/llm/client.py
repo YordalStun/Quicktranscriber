@@ -230,14 +230,19 @@ class Backend:
             data = resp.json()
             self.last_finish = self._finish_reason(data)
             return clean_output(self._parse(data))
-        out = []
-        for piece in self._parse_stream(resp, on_progress):
-            if cancelled and cancelled():
-                resp.close()
-                raise InterruptedError("cancelled")
-            out.append(piece)
-            if on_token:
-                on_token(piece)
+        out: list[str] = []
+        try:
+            for piece in self._parse_stream(resp, on_progress):
+                if cancelled and cancelled():
+                    resp.close()
+                    raise InterruptedError("cancelled")
+                out.append(piece)
+                if on_token:
+                    on_token(piece)
+        except requests.RequestException as exc:
+            err = LLMError(f"The AI engine stopped while answering ({exc.__class__.__name__}).")
+            err.partial = "".join(out)  # type: ignore[attr-defined]
+            raise err from exc
         return clean_output("".join(out))
 
     def _finish_reason(self, data: dict) -> Optional[str]:
@@ -246,8 +251,17 @@ class Backend:
     def chat_json(self, messages: list[dict], schema: dict, max_tokens: int = 2000, temperature: float = 0.2,
                   cancelled=None, on_token=None, on_progress=None) -> Any:
         self.last_truncated = False
-        text = self.chat(messages, schema, max_tokens, temperature, on_token=on_token, cancelled=cancelled,
-                         on_progress=on_progress)
+        try:
+            text = self.chat(messages, schema, max_tokens, temperature, on_token=on_token, cancelled=cancelled,
+                             on_progress=on_progress)
+        except LLMError as exc:
+            # the engine stopped mid-answer: keep what was complete rather than lose it all
+            partial = repair_json(getattr(exc, "partial", "") or "")
+            if partial is None:
+                raise
+            log.warning("%s Kept the complete part of the answer.", exc)
+            self.last_truncated = True
+            return partial
         try:
             return parse_json(text)
         except LLMError:
@@ -436,11 +450,19 @@ class BuiltinLlama(OpenAICompatible):
             return super().count_tokens(text)
 
     def chat(self, *args, **kwargs) -> str:
-        runtime.server.touch()
-        try:
-            return super().chat(*args, **kwargs)
-        finally:
-            runtime.server.touch()
+        with runtime.server.in_use():
+            try:
+                return super().chat(*args, **kwargs)
+            except LLMError as exc:
+                if runtime.server.running():
+                    raise
+                # the engine itself stopped (e.g. ran out of memory): say why
+                reason = runtime.explain_failure(runtime.server.log_tail())
+                if reason.startswith("The AI engine stopped while starting"):
+                    reason = "The AI engine stopped unexpectedly. If this keeps happening, choose a smaller AI model."
+                err = LLMError(reason)
+                err.partial = getattr(exc, "partial", "")  # type: ignore[attr-defined]
+                raise err from exc
 
 
 class Ollama(Backend):

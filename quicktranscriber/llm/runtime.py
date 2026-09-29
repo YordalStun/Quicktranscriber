@@ -7,6 +7,7 @@ for the computer: CUDA for NVIDIA GPUs, Metal on Apple Silicon, CPU otherwise.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -226,6 +227,7 @@ class LlamaServer:
         self.key: Optional[tuple] = None
         self.n_ctx = 0
         self.last_used = 0.0
+        self.busy = 0  # requests in progress: the idle watchdog leaves the engine alone meanwhile
         self.lock = threading.RLock()
         self._watchdog: Optional[threading.Thread] = None
         self.log_path = paths.LOGS / "llama-server.log"
@@ -239,6 +241,19 @@ class LlamaServer:
 
     def touch(self) -> None:
         self.last_used = time.time()
+
+    @contextlib.contextmanager
+    def in_use(self):
+        """Mark a request in progress (answers for long meetings can take many minutes on a CPU)."""
+        with self.lock:
+            self.busy += 1
+            self.touch()
+        try:
+            yield
+        finally:
+            with self.lock:
+                self.busy -= 1
+                self.touch()
 
     def ensure(self, model_path: Path, ctx: int, gpu: bool, threads: int,
                cancelled=None, on_status=None) -> str:
@@ -341,7 +356,7 @@ class LlamaServer:
                 with self.lock:
                     if not self.running():
                         return
-                    if time.time() - self.last_used > IDLE_SHUTDOWN_SECONDS:
+                    if not self.busy and time.time() - self.last_used > IDLE_SHUTDOWN_SECONDS:
                         log.info("Stopping idle AI engine to free memory")
                         self.stop()
                         return
