@@ -468,6 +468,9 @@ a.ts, .ts.link { color: var(--accent-2); cursor: pointer; }
 .rec-btn.recording { background: linear-gradient(135deg, #ef4444, #f97316); box-shadow: 0 10px 40px rgba(239, 68, 68, .45); }
 .rec-btn .core { width: 36px; height: 36px; border-radius: 50%; background: #fff; transition: border-radius .2s, width .2s, height .2s; }
 .rec-btn.recording .core { border-radius: 8px; width: 32px; height: 32px; }
+.rec-btn.recording.paused { background: linear-gradient(135deg, #64748b, #94a3b8); box-shadow: 0 10px 30px rgba(100, 116, 139, .35); }
+.rec-stage.paused .rec-ring { opacity: .3; }
+.rec-stage.paused + .rec-time { color: var(--text-3); animation: blink 1.6s infinite; }
 .rec-time { font-family: var(--font-display); font-size: 54px; font-weight: 300; letter-spacing: .02em; font-variant-numeric: tabular-nums; line-height: 1; }
 .rec-status { color: var(--text-2); margin-top: 8px; display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; }
 .rec-live { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; animation: blink 1.2s infinite; }

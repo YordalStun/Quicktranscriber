@@ -511,7 +511,7 @@ export async function render(root, { args, params }) {
       $('#tsearch', root).focus();
       return;
     }
-    if (typing || !ctx.player || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (typing || !ctx.player?.container.isConnected || e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key;
     if (k === ' ') { e.preventDefault(); ctx.player.toggle(); }
     else if (k === 'ArrowLeft') { e.preventDefault(); ctx.player.skip(-5); }
@@ -526,15 +526,18 @@ export async function render(root, { args, params }) {
   };
   window.addEventListener('keydown', onKey);
 
-  // links to timestamps anywhere in the view (notes, chat)
-  root.addEventListener('click', (e) => {
+  // links to timestamps anywhere in the view (notes, chat). The view element outlives this
+  // page, so the listener is removed when the page closes (otherwise every meeting opened
+  // before would start its own hidden player on each click).
+  const onClick = (e) => {
     const s = e.target.closest('[data-seek]');
-    if (s && !e.target.closest('#transcript')) {
+    if (s && !e.target.closest('#transcript') && ctx.player?.container.isConnected) {
       e.preventDefault();
       ctx.seek(+s.dataset.seek);
       scrollToTime(+s.dataset.seek, true);
     }
-  });
+  };
+  root.addEventListener('click', onClick);
 
   layout();
 
@@ -572,6 +575,7 @@ export async function render(root, { args, params }) {
   return () => {
     unsub();
     window.removeEventListener('keydown', onKey);
+    root.removeEventListener('click', onClick);
     ctx.player?.destroy();
   };
 }

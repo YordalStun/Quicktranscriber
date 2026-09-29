@@ -26,6 +26,7 @@ const NAV = [
 let cleanup = null;
 let currentRoute = null;
 let navToken = 0;
+let rendering = Promise.resolve(); // the page being opened right now
 
 export function navigate(hash) {
   if (location.hash === hash) route();
@@ -41,22 +42,29 @@ function parseHash() {
 }
 
 async function route() {
+  const token = ++navToken;
+  // Let a page that is still opening finish first, so it can be closed properly - otherwise
+  // a double-click could leave a hidden copy of a meeting (and its audio) running.
+  await rendering;
+  if (token !== navToken) return; // a newer navigation takes over
   const { name, args, params } = parseHash();
   const loader = routes[name] || routes[''];
-  const token = ++navToken;
   if (cleanup) { try { cleanup(); } catch (e) { console.error(e); } cleanup = null; }
   currentRoute = name;
   renderSidebar();
   const view = document.getElementById('view');
   view.className = 'view';
   view.innerHTML = '';
+  let opened;
+  rendering = new Promise((resolve) => { opened = resolve; });
   try {
     const mod = await loader();
-    if (token !== navToken) return;
     cleanup = (await mod.render(view, { args, params })) || null;
   } catch (e) {
     console.error(e);
     view.innerHTML = `<div class="empty"><div class="big-icon">${icon('alert', 34)}</div><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`;
+  } finally {
+    opened();
   }
   renderTray();
 }

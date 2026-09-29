@@ -135,7 +135,7 @@ export async function render(root) {
       ${hardwareCard()}${whisperSection()}${llmSection()}${speakerSection()}`;
   }
 
-  root.addEventListener('click', async (e) => {
+  const onClick = async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
     const [kind, ...rest] = (b.dataset.download || b.dataset.use || b.dataset.delete || '').split(':');
@@ -198,7 +198,7 @@ export async function render(root) {
         await api.post('/api/open-folder', { what: 'models' });
       }
     } catch (err) { errorToast(err); }
-  });
+  };
 
   await load();
   const refresh = throttle(load, 1500);
@@ -210,5 +210,6 @@ export async function render(root) {
     if (wasActive && !active) loadStatus();
     wasActive = active;
   });
-  return () => unsub();
+  root.addEventListener('click', onClick);
+  return () => { unsub(); root.removeEventListener('click', onClick); };
 }

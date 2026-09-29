@@ -212,6 +212,7 @@ export class Player {
     cancelAnimationFrame(this.raf);
     let last = 0;
     const f = (ts) => {
+      if (!this.container.isConnected) { this.destroy(); return; } // its page was closed
       if (ts - last > 60) { last = ts; this.tick(); }
       if (!this.audio.paused) this.raf = requestAnimationFrame(f);
     };

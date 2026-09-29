@@ -109,9 +109,9 @@ export async function render(root) {
       level = Math.min(1, Math.pow(peak, 0.6) * 1.2);
     }
     levelEl.style.width = `${Math.round(level * 100)}%`;
-    const scale = 1 + level * 0.18;
-    root.querySelector('#ring1').style.transform = `scale(${scale})`;
-    root.querySelector('#ring2').style.transform = `scale(${1 + level * 0.3})`;
+    const pulse = session?.paused ? 0 : level; // rings stay still while paused
+    root.querySelector('#ring1').style.transform = `scale(${1 + pulse * 0.18})`;
+    root.querySelector('#ring2').style.transform = `scale(${1 + pulse * 0.3})`;
     if (session && !session.paused) { history.push(level); if (history.length > 600) history.shift(); }
     else if (!session) { history.push(level * 0.6); if (history.length > 600) history.shift(); }
     g.clearRect(0, 0, W, H);
@@ -312,6 +312,8 @@ export async function render(root) {
   function updateUI() {
     const rec = !!session;
     btn.classList.toggle('recording', rec);
+    btn.classList.toggle('paused', rec && session.paused);
+    root.querySelector('.rec-stage').classList.toggle('paused', rec && session.paused);
     btn.title = rec ? 'Stop and save' : 'Start recording';
     root.querySelector('#ropts').hidden = rec;
     if (rec) {
