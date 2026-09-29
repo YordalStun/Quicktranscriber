@@ -1,0 +1,118 @@
+name: Windows app
+
+# Builds the ready-to-run Windows package (QuickTranscriber.exe + a private
+# Python with every library pre-installed), tests it end to end on a real
+# Windows machine, and uploads it. Run it manually with "release" ticked to
+# publish a GitHub release.
+
+on:
+  push:
+    branches: ["**"]
+    paths-ignore: ["**.md"]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish as a GitHub release"
+        type: boolean
+        default: false
+      tag:
+        description: "Release tag"
+        type: string
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.8.17"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: launcher/go.sum
+
+      - name: Build QuickTranscriber.exe
+        working-directory: launcher
+        shell: pwsh
+        run: |
+          go install github.com/tc-hib/go-winres@v0.3.3
+          go-winres make --in winres/winres.json --out rsrc
+          $env:CGO_ENABLED = "0"
+          go build -trimpath -ldflags "-H windowsgui -s -w" -o ../dist/QuickTranscriber/QuickTranscriber.exe .
+
+      - name: Add Python and libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $dist = Resolve-Path dist/QuickTranscriber
+          New-Item -ItemType Directory -Force "$dist/runtime/uv" | Out-Null
+          Invoke-WebRequest "https://github.com/astral-sh/uv/releases/download/$env:UV_VERSION/uv-x86_64-pc-windows-msvc.zip" -OutFile uv.zip
+          Expand-Archive uv.zip "$dist/runtime/uv" -Force
+          $uv = "$dist/runtime/uv/uv.exe"
+          $env:UV_CACHE_DIR = "$PWD/build/uv-cache"
+          & $uv python install $env:PYTHON_VERSION --install-dir build/python --no-bin --no-registry
+          if ($LASTEXITCODE) { throw "python install failed" }
+          $py = Get-ChildItem build/python -Directory | Where-Object Name -like "cpython-*" | Select-Object -First 1
+          Copy-Item $py.FullName "$dist/runtime/python" -Recurse
+          Remove-Item "$dist/runtime/python/Lib/EXTERNALLY-MANAGED" -ErrorAction SilentlyContinue
+          & $uv pip install --python "$dist/runtime/python/python.exe" --break-system-packages --link-mode copy -r requirements.txt
+          if ($LASTEXITCODE) { throw "pip install failed" }
+          Copy-Item quicktranscriber, scripts, requirements.txt, requirements-gpu.txt, README.md, "Start QuickTranscriber.bat" $dist -Recurse
+          Get-ChildItem $dist -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+          Get-ChildItem $dist -Recurse -Directory -Filter tests | Where-Object FullName -like "*site-packages*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          "{0:N0} MB" -f ((Get-ChildItem $dist -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Test on Windows (transcribe, speakers, notes, exports, launcher)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dist/QuickTranscriber/runtime/python/python.exe ci/smoke_test.py dist/QuickTranscriber --launcher
+          if ($LASTEXITCODE) { throw "smoke test failed" }
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/QuickTranscriber -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+          7z a -tzip -mx=7 dist/QuickTranscriber-Windows.zip ./dist/QuickTranscriber > $null
+          "{0:N0} MB" -f ((Get-Item dist/QuickTranscriber-Windows.zip).Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: QuickTranscriber-Windows
+          path: dist/QuickTranscriber-Windows.zip
+          retention-days: 7
+          compression-level: 0
+
+      - name: Publish release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: QuickTranscriber ${{ inputs.tag }} for Windows
+          prerelease: false
+          files: dist/QuickTranscriber-Windows.zip
+          body: |
+            **Private meeting transcription and AI notes - everything runs on your computer.**
+
+            1. Download `QuickTranscriber-Windows.zip` below and extract it to any folder (e.g. Documents).
+            2. Double-click **QuickTranscriber.exe**. If Windows SmartScreen says "Windows protected your PC", click *More info → Run anyway*.
+            3. The setup guide downloads the speech and AI models you choose (one time).
+
+            Works on any Windows 10/11 PC. With an NVIDIA graphics card, click *Enable GPU* on the AI models page for much faster transcription.
+            Everything stays in the folder you extracted - delete it to uninstall.

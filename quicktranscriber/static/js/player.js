@@ -122,7 +122,7 @@ export class Player {
 
   buildColors() {
     const w = this.canvas.width;
-    if (!w || !this.segments) return;
+    if (!w || !this.barW || !this.segments) return;
     const bars = Math.floor(w / (this.barW + this.gap));
     const out = new Array(bars).fill(null);
     const segs = this.segments;

@@ -130,7 +130,7 @@ def build_utterances(words: Sequence[list], speakers: Sequence[Optional[int]]) -
     utterances: list[dict[str, Any]] = []
     cur: Optional[dict[str, Any]] = None
     for w, s in zip(words, speakers):
-        start, end, text = w[0], w[1], w[2]
+        start, end = w[0], w[1]
         new = cur is None or s != cur["speaker"]
         if cur is not None and not new:
             pause = start - cur["end"]

@@ -150,7 +150,7 @@ def to_md(d: dict[str, Any], notes: bool = True, transcript: bool = True, timest
             elif title == "Action items":
                 out += [("- [x] " if a.get("done") else "- [ ] ") + _action_text(a, timestamps) for a in body]
             elif title == "Chapters":
-                out += [f"- " + (f"**{ts(c['t'])}** " if timestamps else "") + c["title"] + (f" — {c['summary']}" if c.get("summary") else "") for c in body]
+                out += ["- " + (f"**{ts(c['t'])}** " if timestamps else "") + c["title"] + (f" — {c['summary']}" if c.get("summary") else "") for c in body]
             else:
                 out += [f"- {x}" for x in body]
             out.append("")
@@ -213,7 +213,6 @@ def to_json(d: dict[str, Any], **_: Any) -> str:
 
 def to_docx(d: dict[str, Any], notes: bool = True, transcript: bool = True, timestamps: bool = True) -> bytes:
     from docx import Document
-    from docx.enum.text import WD_ALIGN_PARAGRAPH  # noqa: F401
     from docx.shared import Pt, RGBColor
 
     doc = Document()

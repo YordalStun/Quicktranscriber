@@ -95,6 +95,11 @@ def main() -> None:
 
     paths.keep_everything_local()
     paths.ensure_dirs()
+    if sys.stdout is None or sys.stderr is None:
+        # started without a console (pythonw / QuickTranscriber.exe): keep output in a log file
+        console = open(paths.LOGS / "console.log", "w", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stdout or console
+        sys.stderr = sys.stderr or console
     _setup_logging(args.verbose)
 
     port = args.port
@@ -112,10 +117,9 @@ def main() -> None:
         url = f"http://127.0.0.1:{port}"
 
     from . import db
-    from .hardware import prepare_cuda_libraries  # noqa: F401 - imported for side-effect free check
     from .jobs import runner
     from .llm import runtime
-    from . import pipeline  # noqa: F401 - registers the job handler
+    from . import pipeline  # noqa: F401  (registers the job handler)
     from .server import app
 
     db.init()
@@ -125,7 +129,7 @@ def main() -> None:
     import uvicorn
 
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False,
-                            timeout_keep_alive=30)
+                            timeout_keep_alive=30, log_config=None)
     server = uvicorn.Server(config)
 
     def open_when_ready() -> None:

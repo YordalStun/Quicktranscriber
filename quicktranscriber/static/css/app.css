@@ -173,6 +173,7 @@ textarea.input { resize: vertical; min-height: 80px; line-height: 1.5; }
 .search-box { position: relative; min-width: 260px; }
 .search-box .icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
 .search-box .input { padding-left: 38px; }
+.search-box kbd + .input, .search-box .input:has(+ kbd) { padding-right: 70px; }
 .search-box kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
 kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--border-strong); color: var(--text-3); background: var(--surface-2); }
 

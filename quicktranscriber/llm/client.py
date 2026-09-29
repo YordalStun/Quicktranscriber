@@ -177,6 +177,7 @@ class Backend:
         if resp.status_code >= 400:
             raise LLMError(f"AI engine error {resp.status_code}: {resp.text[:300]}")
         if not stream:
+            resp.encoding = "utf-8"
             return clean_output(self._parse(resp.json()))
         out = []
         for piece in self._parse_stream(resp):
@@ -212,6 +213,7 @@ def _with_json_instruction(messages: list[dict], schema: dict) -> list[dict]:
 
 
 def _sse_lines(resp: requests.Response) -> Iterator[dict]:
+    resp.encoding = "utf-8"  # event streams often omit the charset (requests would guess Latin-1)
     for raw in resp.iter_lines(decode_unicode=True):
         if not raw:
             continue
@@ -395,6 +397,7 @@ class Ollama(Backend):
         return (data.get("message") or {}).get("content", "")
 
     def _parse_stream(self, resp):
+        resp.encoding = "utf-8"
         for raw in resp.iter_lines(decode_unicode=True):
             if not raw:
                 continue

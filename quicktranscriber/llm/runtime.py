@@ -115,8 +115,11 @@ def pick_assets(assets: list[dict[str, Any]], osname: str, arch: str, backend: s
 
 
 def latest_release() -> dict[str, Any]:
-    r = requests.get(RELEASES_API, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
-                     timeout=30)
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN")  # only set in automated builds (avoids rate limits)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    r = requests.get(RELEASES_API, headers=headers, timeout=30)
     if r.status_code == 403:
         raise RuntimeError_("GitHub is rate-limiting downloads right now. Please try again in an hour.")
     r.raise_for_status()

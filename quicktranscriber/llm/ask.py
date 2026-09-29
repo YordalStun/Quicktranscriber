@@ -6,11 +6,10 @@ import json
 import math
 import re
 from collections import Counter
-from typing import Any, Callable, Iterator, Optional
+from typing import Callable, Optional
 
 from .client import Backend
-from .notes import SYSTEM as NOTES_SYSTEM
-from .notes import fmt_time, transcript_lines
+from .notes import transcript_lines
 
 WORD = re.compile(r"[\w']+", re.U)
 STOP = set("""a an the and or but if of to in on at for with from by is are was were be been being it this that
