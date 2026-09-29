@@ -73,7 +73,7 @@ Back up `data/` to keep your meetings. Copy the whole folder to move the app to 
 ### AI meeting notes
 - Templates: general meeting, **committee / formal minutes**, stand-up, project update, 1:1, client call, interview, lecture, brainstorm - plus your own instructions.
 - Long meetings are handled with map-reduce: the transcript is read in parts that fit the model, then merged, so 3-hour meetings work even on small models.
-- Output is constrained to structured JSON, so notes are always well-formed. Timestamps are clickable and jump to that moment in the audio.
+- Output is constrained to structured JSON, so notes are always well-formed - if a very long answer runs out of room, everything complete is kept. Timestamps are clickable and jump to that moment in the audio.
 - Tick off action items; the **Action items** page collects open tasks from every meeting.
 - **Ask your meeting**: *"What did we decide about the budget?"* - answers cite clickable timestamps.
 
@@ -88,6 +88,8 @@ Back up `data/` to keep your meetings. Copy the whole folder to move the app to 
 More notes models are available (Llama 3.2, Gemma 4 E4B/26B, gpt-oss 20B, Qwen 3.6 35B), plus **any GGUF model from Hugging Face** via a link, or `.gguf` files dropped into `models/llm/`. If you already use **Ollama** or **LM Studio**, you can point QuickTranscriber at them in Settings.
 
 The AI engine is [llama.cpp](https://github.com/ggml-org/llama.cpp). The right build is downloaded automatically: CUDA for NVIDIA cards, Metal on Apple Silicon, CPU otherwise.
+
+**How long does it take?** Measured on a 4-core computer *without* a graphics card, for a 1 h 41 min meeting with the Balanced models: transcription 34 min, speakers 4 min, AI notes about an hour. You can read, search and play the transcript while the notes are written. An NVIDIA graphics card makes every step much faster; on a slow laptop the Fast models keep waiting times down.
 
 ### Export
 TXT, Word (.docx), PDF (print-ready page), Markdown, HTML, subtitles (SRT / WebVTT), JSON, or a ZIP with everything including the audio. Choose whether to include notes, transcript, timestamps and speaker names. **Copy notes** puts them on the clipboard for email or chat.
