@@ -336,7 +336,10 @@ def install_gpu_pack() -> dict[str, Any]:
     def run() -> None:
         env = dict(os.environ)
         env.update(UV_CACHE_DIR=str(paths.RUNTIME / "cache"), UV_LINK_MODE="copy")
-        cmd = [str(uv), "pip", "install", "--python", sys.executable, "-r", str(req)]
+        exe = Path(sys.executable)
+        if exe.name.lower() == "pythonw.exe":  # the console-less interpreter can't report back to uv
+            exe = exe.with_name("python.exe")
+        cmd = [str(uv), "pip", "install", "--python", str(exe), "-r", str(req)]
         if sys.prefix == sys.base_prefix:  # portable build: packages live in the bundled Python itself
             cmd.append("--break-system-packages")
         try:

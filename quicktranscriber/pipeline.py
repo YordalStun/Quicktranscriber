@@ -389,7 +389,7 @@ def _vocabulary(opts: dict) -> str:
 
 
 def speaker_step_seconds() -> float:
-    return {"fast": 4.0, "balanced": 2.0, "precise": 1.0}.get(settings.get("speaker_detail"), 2.0)
+    return {"fast": 3.0, "balanced": 2.0, "precise": 1.0}.get(settings.get("speaker_detail"), 2.0)
 
 
 def stage_speakers(meeting: dict, opts: dict, ctx: JobContext, force: bool) -> None:

@@ -87,7 +87,7 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem dist/QuickTranscriber -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
-          7z a -tzip -mx=7 dist/QuickTranscriber-Windows.zip ./dist/QuickTranscriber > $null
+          7z a -tzip -mx=5 -mmt=on dist/QuickTranscriber-Windows.zip ./dist/QuickTranscriber > $null
           "{0:N0} MB" -f ((Get-Item dist/QuickTranscriber-Windows.zip).Length / 1MB)
 
       - uses: actions/upload-artifact@v4
