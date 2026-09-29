@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import APP_NAME, __version__, catalog, db, downloads, exporters, hardware, paths, pipeline, settings, speakers
+from . import APP_NAME, __version__, catalog, db, downloads, exporters, hardware, paths, pipeline, settings, speakers, watcher
 from . import audio as audio_mod
 from .jobs import UserFacingError, runner
 from .llm import ask as ask_mod
@@ -130,7 +130,21 @@ async def put_settings(request: Request) -> dict[str, Any]:
         llm_runtime.server.stop()
     if before["speaker_model"] != after["speaker_model"] and speakers.models_installed(after["speaker_model"]):
         threading.Thread(target=_safe(speakers.reembed_all), daemon=True).start()
+    if (before["watch_folder"], before["watch_enabled"]) != (after["watch_folder"], after["watch_enabled"]):
+        watcher.baseline(after["watch_folder"])
     return {"settings": after}
+
+
+@app.get("/api/watch")
+def watch_status() -> dict[str, Any]:
+    return watcher.status()
+
+
+@app.post("/api/watch/import-existing")
+def watch_import_existing() -> dict[str, Any]:
+    n = watcher.import_existing()
+    threading.Thread(target=_safe(watcher.scan_once), daemon=True).start()
+    return {"files": n}
 
 
 def _safe(fn):

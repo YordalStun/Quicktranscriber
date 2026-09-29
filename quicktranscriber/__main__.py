@@ -125,6 +125,9 @@ def main() -> None:
     db.init()
     runtime.kill_orphan()
     runner.start()
+    from . import watcher
+
+    watcher.start()
 
     import uvicorn
 

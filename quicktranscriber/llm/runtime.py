@@ -28,12 +28,14 @@ from ..downloads import USER_AGENT, manager
 
 log = logging.getLogger("qt.llm.runtime")
 
-RELEASES_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
+# llama.cpp publishes every build as a pre-release, so "latest" can't be used
+RELEASES_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=12"
 STATE_FILE = paths.LLAMA_DIR / "installed.json"
 PID_FILE = paths.LLAMA_DIR / "server.pid"
 IDLE_SHUTDOWN_SECONDS = 15 * 60
 BINARY_NAMES = ("llama-server.exe", "llama-server")
-OTHER_BACKENDS = ("cuda", "vulkan", "hip", "sycl", "opencl", "kompute", "rocm", "musa", "openvino", "cann", "radeon")
+OTHER_BACKENDS = ("cuda", "vulkan", "hip", "sycl", "opencl", "kompute", "rocm", "musa", "openvino", "cann", "radeon",
+                  "snapdragon", "adreno", "android", "s390x", "kleidiai")
 
 
 class RuntimeError_(Exception):
@@ -90,8 +92,9 @@ def pick_assets(assets: list[dict[str, Any]], osname: str, arch: str, backend: s
     ]
     if backend == "cuda":
         cands = [a for a in main if "cuda" in a["name"]]
-        if cuda_max:
-            cands = [a for a in cands if (_cuda_version(a["name"]) or (99, 0)) <= cuda_max]
+        # unknown driver: assume CUDA 12, which almost every recent NVIDIA driver supports
+        limit = cuda_max or (12, 9)
+        cands = [a for a in cands if (_cuda_version(a["name"]) or (99, 0)) <= limit]
         if not cands:
             return []
         best = max(cands, key=lambda a: _cuda_version(a["name"]) or (0, 0))
@@ -114,16 +117,17 @@ def pick_assets(assets: list[dict[str, Any]], osname: str, arch: str, backend: s
     return plain[:1]
 
 
-def latest_release() -> dict[str, Any]:
+def recent_releases() -> list[dict[str, Any]]:
     headers = {"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"}
     token = os.environ.get("GITHUB_TOKEN")  # only set in automated builds (avoids rate limits)
     if token:
         headers["Authorization"] = f"Bearer {token}"
     r = requests.get(RELEASES_API, headers=headers, timeout=30)
-    if r.status_code == 403:
+    if r.status_code in (403, 429):
         raise RuntimeError_("GitHub is rate-limiting downloads right now. Please try again in an hour.")
     r.raise_for_status()
-    return r.json()
+    data = r.json()
+    return [rel for rel in (data if isinstance(data, list) else [data]) if not rel.get("draft")]
 
 
 def installed() -> Optional[dict[str, Any]]:
@@ -160,15 +164,22 @@ def install(backend: Optional[str] = None) -> dict[str, Any]:
     """Start downloading llama-server. Returns the download task."""
     backend = backend or preferred_backend()
     osname, arch = _os_arch()
-    release = latest_release()
-    tag = release.get("tag_name", "latest")
-    assets = [{"name": a["name"], "url": a["browser_download_url"], "size": a.get("size", 0)}
-              for a in release.get("assets", [])]
-    search_backend = "cpu" if backend == "metal" else backend
-    chosen = pick_assets(assets, osname, arch, search_backend, hardware.cuda_driver_version())
-    if not chosen and backend != "cpu":
+    releases = recent_releases()
+
+    def find(kind: str) -> tuple[list[dict[str, Any]], str]:
+        # newest release that has a build for this computer (some builds can lag behind)
+        for rel in releases:
+            assets = [{"name": a["name"], "url": a["browser_download_url"], "size": a.get("size", 0)}
+                      for a in rel.get("assets", [])]
+            picked = pick_assets(assets, osname, arch, kind, hardware.cuda_driver_version())
+            if picked:
+                return picked, rel.get("tag_name", "latest")
+        return [], ""
+
+    chosen, tag = find("cpu" if backend == "metal" else backend)
+    if not chosen and backend not in ("cpu", "metal"):
         backend = "cpu"
-        chosen = pick_assets(assets, osname, arch, "cpu")
+        chosen, tag = find("cpu")
     if not chosen:
         raise RuntimeError_(
             "Could not find a llama.cpp build for this computer. You can download llama-server manually "

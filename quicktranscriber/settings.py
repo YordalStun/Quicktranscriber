@@ -40,6 +40,8 @@ DEFAULTS: dict[str, Any] = {
     "llama_server_path": "",  # custom llama-server binary
     # --- storage -----------------------------------------------------------
     "keep_original_audio": True,
+    "watch_enabled": False,
+    "watch_folder": "",
 }
 
 _lock = threading.Lock()

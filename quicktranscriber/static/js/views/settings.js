@@ -64,6 +64,12 @@ export async function render(root) {
       </div>
     </div>
 
+    <div class="set-section"><h2>Automatic import</h2>
+      ${row('Watch a folder', 'New recordings that appear in this folder are transcribed automatically - great if your phone recordings sync to this PC (OneDrive, Google Drive, Dropbox…).', switchEl(s.watch_enabled, 'data-key="watch_enabled"'))}
+      ${row('Folder', 'Paste the folder path, e.g. C:\\Users\\you\\OneDrive\\Recordings (in Explorer: click the address bar and copy).', `<input class="input" data-key="watch_folder" value="${esc(s.watch_folder)}" placeholder="Folder to watch">`, true)}
+      <div class="small faint" id="watch-status" style="padding:8px 4px"></div>
+    </div>
+
     <div class="set-section"><h2>Storage & privacy</h2>
       ${row('Keep original audio files', 'Keeps the file you imported next to the converted copy.', switchEl(s.keep_original_audio, 'data-key="keep_original_audio"'))}
       ${row('App folder', `Everything - meetings, voices, models - is stored here:<br><code style="font-size:12px">${esc(st.data_folder)}</code><br>Delete the folder to remove the app completely.`, `<div class="btn-row"><button class="btn" data-open="data">${icon('folder', 16)} Open data folder</button></div>`)}
@@ -76,12 +82,31 @@ export async function render(root) {
   </div>`;
 
   const saved = debounce(() => toast('Saved', 'good', 1200), 400);
+  async function watchStatus() {
+    const box = root.querySelector('#watch-status');
+    if (!box) return;
+    try {
+      const w = await api.get('/api/watch');
+      if (!w.folder) { box.textContent = ''; return; }
+      if (!w.exists) { box.innerHTML = `<span style="color:var(--warn)">${icon('alert', 13)} This folder doesn't exist.</span>`; return; }
+      box.innerHTML = `${icon(w.enabled ? 'check' : 'info', 13)} ${w.enabled ? 'Watching' : 'Not watching'} · ${w.files} audio file${w.files === 1 ? '' : 's'} in the folder. `
+        + (w.files ? `<a href="#" data-import-existing>Also transcribe the files already there</a>` : '');
+      box.querySelector('[data-import-existing]')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        if (!w.enabled) { toast('Turn on “Watch a folder” first', 'warn'); return; }
+        if (!(await confirmDialog('Transcribe existing files?', `All ${w.files} audio files in the folder will be added to the queue.`, { ok: 'Transcribe all' }))) return;
+        await api.post('/api/watch/import-existing');
+        toast('Importing - they will appear in Meetings shortly', 'good');
+      });
+    } catch { box.textContent = ''; }
+  }
   async function save(key, value) {
     try {
       if (key === 'llm_model_ext' || key === 'llm_model_ext2') key = 'llm_model';
       if (key === 'theme') { try { localStorage.setItem('qt-theme', value); } catch { /* ignore */ } }
       await saveSettings({ [key]: value });
       if (['whisper_model', 'device', 'llm_backend'].includes(key)) await loadStatus();
+      if (key.startsWith('watch_')) watchStatus();
       saved();
     } catch (e) { errorToast(e); }
   }
@@ -94,6 +119,7 @@ export async function render(root) {
   root.querySelectorAll('select[data-key]').forEach((el) => el.addEventListener('change', () => save(el.dataset.key, el.dataset.key === 'llm_context' ? +el.value : el.value)));
   root.querySelectorAll('input[type=checkbox][data-key]').forEach((el) => el.addEventListener('change', () => save(el.dataset.key, el.checked)));
   root.querySelectorAll('input.input[data-key], textarea[data-key]').forEach((el) => el.addEventListener('change', () => save(el.dataset.key, el.value.trim())));
+  watchStatus();
   root.querySelector('[data-open]').onclick = () => api.post('/api/open-folder', { what: 'data' }).catch(errorToast);
   root.querySelector('[data-onboard]').onclick = async () => (await import('./onboarding.js')).openOnboarding();
   root.querySelector('[data-quit]').onclick = async () => {
