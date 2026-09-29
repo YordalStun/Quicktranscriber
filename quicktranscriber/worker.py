@@ -58,38 +58,42 @@ def run_in_child(
     child_conn.close()
     result: Optional[dict[str, Any]] = None
     error: Optional[dict[str, Any]] = None
+
+    def handle(msg: dict[str, Any]) -> None:
+        nonlocal result, error
+        kind = msg.get("type")
+        if kind == "result":
+            result = msg["data"]
+        elif kind == "error":
+            error = msg
+        else:
+            on_message(msg)
+
     try:
         while True:
             if cancelled():
                 proc.terminate()
                 proc.join(5)
                 raise StageCancelled()
-            if parent_conn.poll(0.25):
-                try:
-                    msg = parent_conn.recv()
-                except EOFError:
-                    break
-                kind = msg.get("type")
-                if kind == "result":
-                    result = msg["data"]
-                elif kind == "error":
-                    error = msg
-                else:
-                    on_message(msg)
-            elif not proc.is_alive():
-                # drain anything left in the pipe
-                while parent_conn.poll(0):
-                    try:
-                        msg = parent_conn.recv()
-                    except EOFError:
-                        break
-                    if msg.get("type") == "result":
-                        result = msg["data"]
-                    elif msg.get("type") == "error":
-                        error = msg
-                    else:
-                        on_message(msg)
+            try:
+                if parent_conn.poll(0.25):
+                    handle(parent_conn.recv())
+                    continue
+            except (EOFError, OSError):
+                # The child closed its end: it finished or died. (On Windows this
+                # surfaces as BrokenPipeError rather than EOF.)
                 break
+            if not proc.is_alive():
+                break
+        # Collect whatever is still buffered. Once the child has exited its end of
+        # the pipe is closed, so recv() returns buffered messages then raises.
+        proc.join(10)
+        if not proc.is_alive():
+            while True:
+                try:
+                    handle(parent_conn.recv())
+                except (EOFError, OSError):
+                    break
     finally:
         parent_conn.close()
         proc.join(10)
