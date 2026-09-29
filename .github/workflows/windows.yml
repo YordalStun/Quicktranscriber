@@ -119,7 +119,7 @@ jobs:
           body: |
             **Private meeting transcription and AI notes - everything runs on your computer.**
 
-            1. Download `QuickTranscriber-Windows.zip` below and extract it to any folder (e.g. Documents).
+            1. Download `QuickTranscriber-Windows.zip` below, then right-click it → **Extract All** (e.g. into Documents). Don't run it from inside the zip.
             2. Double-click **QuickTranscriber.exe**. If Windows SmartScreen says "Windows protected your PC", click *More info → Run anyway*.
             3. The setup guide downloads the speech and AI models you choose (one time).
 

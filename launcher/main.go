@@ -10,8 +10,8 @@
 package main
 
 import (
-	_ "embed"
 	"bytes"
+	_ "embed"
 	"errors"
 	"fmt"
 	"net"
@@ -62,6 +62,12 @@ func main() {
 
 	python := findPython()
 	if python == "" {
+		if !exists(filepath.Join(root, "scripts", "windows", "setup.ps1")) {
+			// Usually: opened straight from the zip, so Windows copied only the exe to a temp folder.
+			fatal("QuickTranscriber can't find its files next to QuickTranscriber.exe.\n\n" +
+				"If you opened it from inside the zip file, extract the zip first " +
+				"(right-click it → Extract All), then open QuickTranscriber.exe in the extracted folder.")
+		}
 		if err := runSetup(); err != nil {
 			fatal("Setup did not finish:\n\n" + err.Error() + "\n\nCheck your internet connection and start QuickTranscriber again.")
 		}

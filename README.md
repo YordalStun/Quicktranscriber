@@ -14,9 +14,9 @@ Nothing is uploaded anywhere. There are no accounts, subscriptions or cloud serv
 
 ## Download & start (Windows)
 
-1. Go to **Releases** and download `QuickTranscriber-Windows.zip`.
-2. Extract it anywhere you like - e.g. `Documents\QuickTranscriber`.
-3. Double-click **`QuickTranscriber.exe`**.
+1. Download `QuickTranscriber-Windows.zip` from the [latest release](https://github.com/YordalStun/Quicktranscriber/releases/latest).
+2. Extract it anywhere you like - right-click the zip → **Extract All** (e.g. into `Documents`). Don't run it from inside the zip.
+3. Open the extracted folder and double-click **`QuickTranscriber.exe`**.
    *If Windows SmartScreen says "Windows protected your PC", click **More info → Run anyway** (the app isn't code-signed).*
 4. The setup guide asks for your meeting language and a quality level, then downloads the models once.
 
@@ -111,6 +111,8 @@ TXT, Word (.docx), PDF (print-ready page), Markdown, HTML, subtitles (SRT / WebV
 ## Troubleshooting
 
 - **"Windows protected your PC"** - click *More info → Run anyway*. The zip is built automatically by GitHub Actions from this repository's source code.
+- **"Can't find its files next to QuickTranscriber.exe"** - the zip wasn't extracted. Right-click the zip → *Extract All*, then start the exe from the extracted folder.
+- **Blocked by Smart App Control** (some new Windows 11 PCs) - Smart App Control only allows code-signed apps, and QuickTranscriber isn't signed. It runs once Smart App Control is turned off (Windows Security → App & browser control).
 - **Wrong language / gibberish transcript** - set the meeting language instead of *detect automatically*, or use a larger model.
 - **Speakers mixed up** - open the *Speakers* tab of the meeting and set the number of people; name the speakers so they're learned.
 - **GPU not used** - AI models page → *Enable GPU*. If the GPU fails, QuickTranscriber automatically falls back to the processor and tells you why.
