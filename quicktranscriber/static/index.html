@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuickTranscriber</title>
+  <meta name="description" content="Private, local meeting transcription and notes">
+  <link rel="icon" href="/static/img/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/app.css?v={{VERSION}}">
+  <script>
+    try { const t = localStorage.getItem('qt-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <main class="main" id="main">
+      <div class="view" id="view"></div>
+      <div class="job-tray" id="tray"></div>
+    </main>
+  </div>
+  <div class="dropzone" id="dropzone"><div class="inner">
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="color:var(--accent)"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+    <h2>Drop to transcribe</h2><div class="muted">Audio or video files - they stay on this computer</div></div></div>
+  <noscript>QuickTranscriber needs JavaScript enabled.</noscript>
+  <script type="module" src="/static/js/app.js?v={{VERSION}}"></script>
+</body>
+</html>

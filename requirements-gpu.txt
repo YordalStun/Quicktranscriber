@@ -1,0 +1,4 @@
+# NVIDIA GPU acceleration for speech recognition (CUDA 12 libraries used by CTranslate2).
+# Installed automatically by the start script when an NVIDIA graphics card is found.
+nvidia-cublas-cu12>=12.4,<13
+nvidia-cudnn-cu12>=9.1,<10
