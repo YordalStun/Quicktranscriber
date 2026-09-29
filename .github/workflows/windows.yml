@@ -79,9 +79,18 @@ jobs:
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONUTF8: "1"
         run: |
-          dist/QuickTranscriber/runtime/python/python.exe ci/smoke_test.py dist/QuickTranscriber --launcher
-          if ($LASTEXITCODE) { throw "smoke test failed" }
+          # Run from a folder with non-English letters (as in many user names) to
+          # prove every engine copes with such paths, then move it back.
+          $test = "dist/Tëst Ωmega"
+          Move-Item dist/QuickTranscriber $test
+          try {
+            & "$test/runtime/python/python.exe" ci/smoke_test.py $test --launcher
+            if ($LASTEXITCODE) { throw "smoke test failed" }
+          } finally {
+            Move-Item $test dist/QuickTranscriber
+          }
 
       - name: Zip
         shell: pwsh

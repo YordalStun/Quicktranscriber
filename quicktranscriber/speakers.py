@@ -75,7 +75,7 @@ def extractor(key: Optional[str] = None) -> EmbeddingExtractor:
         if key not in _extractors:
             from .hardware import cpu_threads
 
-            _extractors[key] = EmbeddingExtractor(str(model_path(key)), num_threads=min(4, cpu_threads()))
+            _extractors[key] = EmbeddingExtractor(paths.native(model_path(key)), num_threads=min(4, cpu_threads()))
         return _extractors[key]
 
 

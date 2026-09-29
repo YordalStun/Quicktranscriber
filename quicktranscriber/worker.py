@@ -159,12 +159,13 @@ def _transcribe(p: dict[str, Any], send) -> dict[str, Any]:
     import numpy as np
     from faster_whisper import WhisperModel
 
+    from . import paths
     from .audio import load_wav
 
     send({"type": "progress", "value": 0.0, "message": "Loading the speech model"})
     t0 = time.time()
     model = WhisperModel(
-        p["model_dir"],
+        paths.native(p["model_dir"]),
         device=p["device"],
         compute_type=p["compute_type"],
         cpu_threads=p.get("threads", 0) if p["device"] == "cpu" else 0,
@@ -238,12 +239,13 @@ def _transcribe(p: dict[str, Any], send) -> dict[str, Any]:
 
 def _diarize(p: dict[str, Any], send) -> dict[str, Any]:
     from . import diarization as D
+    from . import paths
     from .audio import load_wav
 
     send({"type": "progress", "value": 0.0, "message": "Loading speaker models"})
     threads = int(p.get("threads") or 2)
-    segmenter = D.Segmenter(p["segmentation_model"], num_threads=threads)
-    extractor = D.EmbeddingExtractor(p["embedding_model"], num_threads=threads)
+    segmenter = D.Segmenter(paths.native(p["segmentation_model"]), num_threads=threads)
+    extractor = D.EmbeddingExtractor(paths.native(p["embedding_model"]), num_threads=threads)
     audio = load_wav(p["wav"])
     t0 = time.time()
 

@@ -93,6 +93,7 @@ def main() -> None:
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
+    os.chdir(paths.ROOT)  # model paths are handed to the engines relative to it (see paths.native)
     paths.keep_everything_local()
     paths.ensure_dirs()
     if sys.stdout is None or sys.stderr is None:

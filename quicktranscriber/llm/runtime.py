@@ -253,14 +253,14 @@ class LlamaServer:
             self.stop()
             kill_orphan()
             self.port = _free_port()
+            bindir = str(Path(info["binary"]).parent)
             cmd = [
-                info["binary"], "-m", str(model_path), "-c", str(ctx), "--host", "127.0.0.1",
+                info["binary"], "-m", paths.native(model_path, bindir), "-c", str(ctx), "--host", "127.0.0.1",
                 "--port", str(self.port), "-np", "1", "--jinja", "--no-webui", "-t", str(threads),
             ]
             if not gpu:
                 cmd += ["-ngl", "0"]
             env = dict(os.environ)
-            bindir = str(Path(info["binary"]).parent)
             if hardware.IS_LINUX:
                 env["LD_LIBRARY_PATH"] = os.pathsep.join([bindir, env.get("LD_LIBRARY_PATH", "")])
             elif hardware.IS_MAC:

@@ -61,3 +61,22 @@ def rel(path: Path) -> str:
 
 def absolute(relative: str) -> Path:
     return ROOT / relative
+
+
+def native(path: Path | str, start: Path | str | None = None) -> str:
+    """Path to hand to the speech, speaker and LLM engines.
+
+    On Windows some of them open files through narrow "ANSI" strings, so a
+    folder with letters such as "é" or "ł" in its path (often the user name)
+    makes them fail to find their model. The app runs from ROOT, so in that
+    case the path is given relative to the working directory (or ``start``),
+    which is plain ASCII.
+    """
+    p = os.path.abspath(path)
+    if p.isascii():
+        return p
+    try:
+        relative = os.path.relpath(p, start or os.getcwd())
+    except ValueError:  # on another drive
+        return p
+    return relative if relative.isascii() else p
