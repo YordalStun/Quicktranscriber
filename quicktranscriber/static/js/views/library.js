@@ -55,7 +55,7 @@ export async function render(root) {
       <div class="thumb">${icon(m.source === 'recording' ? 'mic' : 'wave', 22)}</div>
       <div style="min-width:0">
         <div class="title"><span>${esc(m.title)}</span>${m.notes_status === 'ready' ? `<span class="badge accent">${icon('sparkles', 12)} Notes</span>` : ''}</div>
-        <div class="meta"><span>${esc(fmtDate(m.recorded_at || m.created_at))}</span>${m.duration ? `<span>${icon('clock', 13)} ${fmtDuration(m.duration)}</span>` : ''}${spk.length ? `<span>${icon('users', 13)} ${spk.length}${m.speakers.length > 5 ? '+' : ''}</span>` : ''}</div>
+        <div class="meta"><span>${esc(fmtDate(m.recorded_at || m.created_at))}</span>${m.duration ? `<span>${icon('clock', 13)} ${fmtDuration(m.duration)}</span>` : ''}${spk.length ? `<span>${icon('users', 13)} ${m.speakers.length}</span>` : ''}</div>
         ${m.summary && !processing ? `<div class="summary">${esc(m.summary)}</div>` : ''}
         ${status}
       </div>

@@ -24,8 +24,9 @@ permissions:
   contents: write
 
 concurrency:
-  group: windows-${{ github.ref }}
-  cancel-in-progress: true
+  # a new push replaces an older test build, but never cancels a release build
+  group: windows-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   UV_VERSION: "0.8.17"
