@@ -324,7 +324,21 @@ def generate(
         for i, chunk in enumerate(chunks):
             if cancelled and cancelled():
                 raise InterruptedError("cancelled")
-            report(0.02 + 0.75 * i / len(chunks), f"Reading part {i + 1} of {len(chunks)}")
+            lo, hi = 0.02 + 0.75 * i / len(chunks), 0.02 + 0.75 * (i + 1) / len(chunks)
+            report(lo, f"Reading part {i + 1} of {len(chunks)}")
+            produced = [0]
+
+            # a part takes minutes on a slow computer: keep the progress moving while
+            # the model reads it (first 40%) and while it writes (the rest)
+            def on_progress(f: float, lo=lo, hi=hi, n=i + 1) -> None:
+                report(lo + (hi - lo) * 0.4 * f, f"Reading part {n} of {len(chunks)}")
+
+            def on_token(_piece: str, lo=lo, hi=hi, n=i + 1) -> None:
+                produced[0] += 1
+                if produced[0] % 10 == 0:
+                    done = min(1.0, produced[0] / (detail["map_out"] * 0.5))
+                    report(lo + (hi - lo) * (0.4 + 0.55 * done), f"Taking notes on part {n} of {len(chunks)}")
+
             text = "\n".join(l for _, l in chunk)
             span = f"{fmt_time(chunk[0][0])} to {fmt_time(chunk[-1][0])}"
             prompt = (
@@ -343,7 +357,8 @@ def generate(
             )
             part = backend.chat_json(
                 [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-                map_schema(tpl, detail), max_tokens=detail["map_out"], cancelled=cancelled,
+                map_schema(tpl, detail), max_tokens=detail["map_out"], cancelled=cancelled, on_token=on_token,
+                on_progress=on_progress,
             )
             partials.append(_clean_partial(part))
         report(0.8, "Combining the notes")
@@ -377,17 +392,22 @@ def _final_pass(backend, content, tpl, detail, lang, extra, duration, report, ca
         + f"{lang}\n\n{tail}\n{content}"
     )
     produced = [0]
+    base = 0.05 if direct else 0.82
+    reading = 0.3 * (0.95 - base)  # share of the stage spent reading the prompt
+
+    def on_progress(f: float) -> None:
+        report(base + reading * f, "Reading the transcript" if direct else "Combining the notes")
 
     def on_token(_piece: str) -> None:
         produced[0] += 1
         if produced[0] % 20 == 0:
-            base = 0.05 if direct else 0.82
-            report(min(0.98, base + (0.95 - base) * produced[0] / (detail["final_out"] * 0.6)),
-                   "Writing the notes")
+            done = min(1.0, produced[0] / (detail["final_out"] * 0.6))
+            report(min(0.98, base + reading + (0.95 - base - reading) * done), "Writing the notes")
 
     return backend.chat_json(
         [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
         final_schema(tpl, detail), max_tokens=detail["final_out"], cancelled=cancelled, on_token=on_token,
+        on_progress=on_progress,
     )
 
 

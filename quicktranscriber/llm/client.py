@@ -148,7 +148,9 @@ class Backend:
     def _parse(self, data: dict) -> str:
         raise NotImplementedError
 
-    def _parse_stream(self, resp: requests.Response) -> Iterator[str]:
+    def _parse_stream(self, resp: requests.Response,
+                      on_progress: Optional[Callable[[float], None]] = None) -> Iterator[str]:
+        """Yield text pieces; ``on_progress`` gets prompt-reading progress (0-1) if the engine reports it."""
         raise NotImplementedError
 
     def describe(self) -> str:
@@ -160,8 +162,9 @@ class Backend:
     # shared ----------------------------------------------------------------------
     def chat(self, messages: list[dict], schema: Optional[dict] = None, max_tokens: int = 1500,
              temperature: float = 0.3, on_token: Optional[Callable[[str], None]] = None,
-             cancelled: Optional[Callable[[], bool]] = None) -> str:
-        stream = on_token is not None or cancelled is not None
+             cancelled: Optional[Callable[[], bool]] = None,
+             on_progress: Optional[Callable[[float], None]] = None) -> str:
+        stream = on_token is not None or cancelled is not None or on_progress is not None
         use_schema = schema if self.supports_schema else None
         msgs = messages
         if schema and not use_schema:
@@ -180,7 +183,7 @@ class Backend:
             resp.encoding = "utf-8"
             return clean_output(self._parse(resp.json()))
         out = []
-        for piece in self._parse_stream(resp):
+        for piece in self._parse_stream(resp, on_progress):
             if cancelled and cancelled():
                 resp.close()
                 raise InterruptedError("cancelled")
@@ -190,8 +193,9 @@ class Backend:
         return clean_output("".join(out))
 
     def chat_json(self, messages: list[dict], schema: dict, max_tokens: int = 2000, temperature: float = 0.2,
-                  cancelled=None, on_token=None) -> Any:
-        text = self.chat(messages, schema, max_tokens, temperature, on_token=on_token, cancelled=cancelled)
+                  cancelled=None, on_token=None, on_progress=None) -> Any:
+        text = self.chat(messages, schema, max_tokens, temperature, on_token=on_token, cancelled=cancelled,
+                         on_progress=on_progress)
         try:
             return parse_json(text)
         except LLMError:
@@ -270,13 +274,20 @@ class OpenAICompatible(Backend):
         msg = data["choices"][0]["message"]
         return msg.get("content") or ""
 
-    def _parse_stream(self, resp):
+    def _parse_stream(self, resp, on_progress=None):
+        writing = False
         for event in _sse_lines(resp):
+            prog = event.get("prompt_progress")  # llama-server with return_progress
+            if prog and on_progress and not writing:
+                total, cache = prog.get("total") or 0, prog.get("cache") or 0
+                if total > cache:
+                    on_progress(min(1.0, max(0.0, ((prog.get("processed") or 0) - cache) / (total - cache))))
             choices = event.get("choices") or []
             if choices:
                 delta = choices[0].get("delta") or {}
                 piece = delta.get("content")
                 if piece:
+                    writing = True
                     yield piece
 
     def prepare(self, cancelled=None, on_status=None) -> None:
@@ -312,6 +323,7 @@ class BuiltinLlama(OpenAICompatible):
                 "reasoning_effort": "medium" if self.thinking else "low",
             },
             "cache_prompt": True,
+            "return_progress": True,  # report prompt reading progress while streaming
         }
 
     def describe(self) -> str:
@@ -396,7 +408,7 @@ class Ollama(Backend):
     def _parse(self, data: dict) -> str:
         return (data.get("message") or {}).get("content", "")
 
-    def _parse_stream(self, resp):
+    def _parse_stream(self, resp, on_progress=None):
         resp.encoding = "utf-8"
         for raw in resp.iter_lines(decode_unicode=True):
             if not raw:
