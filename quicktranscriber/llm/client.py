@@ -61,6 +61,48 @@ def parse_json(text: str) -> Any:
     raise LLMError("The AI model did not return valid structured notes.")
 
 
+def repair_json(text: str) -> Optional[dict]:
+    """Recover the complete part of a JSON object that was cut off (e.g. at the token limit).
+
+    Cuts back to the last complete value and closes the open brackets, so an answer
+    that ran out of room keeps everything written before that point.
+    """
+    text = clean_output(text)
+    start = text.find("{")
+    if start < 0:
+        return None
+    s = text[start:]
+    closers: list[str] = []
+    cuts: list[tuple[int, str]] = []  # (end of a complete prefix, brackets to close it)
+    in_str = esc = False
+    for i, ch in enumerate(s):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "{[":
+            closers.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if closers:
+                closers.pop()
+            cuts.append((i + 1, "".join(reversed(closers))))
+        elif ch == ",":
+            cuts.append((i, "".join(reversed(closers))))
+    for end, close in reversed(cuts):
+        try:
+            value = json.loads(s[:end] + close)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value:
+            return value
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Model resolution for the built-in engine
 # ---------------------------------------------------------------------------
@@ -127,10 +169,13 @@ def default_context(model_key: str, gpu: bool) -> int:
 class Backend:
     name = "backend"
     supports_schema = True
+    exact_tokens = False  # count_tokens() is only an estimate
     presence_penalty = 0.6  # discourages small models from repeating themselves
 
     def __init__(self, model: str):
         self.model = model
+        self.last_finish: Optional[str] = None  # "length" when the last answer hit max_tokens
+        self.last_truncated = False  # the last chat_json() answer was cut off and repaired
 
     # to implement ------------------------------------------------------------
     def prepare(self, cancelled=None, on_status=None) -> None: ...
@@ -165,6 +210,7 @@ class Backend:
              cancelled: Optional[Callable[[], bool]] = None,
              on_progress: Optional[Callable[[float], None]] = None) -> str:
         stream = on_token is not None or cancelled is not None or on_progress is not None
+        self.last_finish = None
         use_schema = schema if self.supports_schema else None
         msgs = messages
         if schema and not use_schema:
@@ -181,7 +227,9 @@ class Backend:
             raise LLMError(f"AI engine error {resp.status_code}: {resp.text[:300]}")
         if not stream:
             resp.encoding = "utf-8"
-            return clean_output(self._parse(resp.json()))
+            data = resp.json()
+            self.last_finish = self._finish_reason(data)
+            return clean_output(self._parse(data))
         out = []
         for piece in self._parse_stream(resp, on_progress):
             if cancelled and cancelled():
@@ -192,20 +240,40 @@ class Backend:
                 on_token(piece)
         return clean_output("".join(out))
 
+    def _finish_reason(self, data: dict) -> Optional[str]:
+        return None
+
     def chat_json(self, messages: list[dict], schema: dict, max_tokens: int = 2000, temperature: float = 0.2,
                   cancelled=None, on_token=None, on_progress=None) -> Any:
+        self.last_truncated = False
         text = self.chat(messages, schema, max_tokens, temperature, on_token=on_token, cancelled=cancelled,
                          on_progress=on_progress)
         try:
             return parse_json(text)
         except LLMError:
-            # one retry, asking the model to fix its answer
-            retry = messages + [
-                {"role": "assistant", "content": text[:4000]},
-                {"role": "user", "content": "That was not valid JSON. Reply again with only the JSON object."},
-            ]
-            text = self.chat(retry, schema, max_tokens, 0.1, cancelled=cancelled)
-            return parse_json(text)
+            pass
+        if self.last_finish == "length":
+            # ran out of room: asking again would be cut off the same way, so keep what is complete
+            partial = repair_json(text)
+            if partial is not None:
+                log.warning("The AI's answer was cut off at %d tokens; kept the complete part", max_tokens)
+                self.last_truncated = True
+                return partial
+        # one retry, asking the model to fix its answer
+        retry = messages + [
+            {"role": "assistant", "content": text[:4000]},
+            {"role": "user", "content": "That was not valid JSON. Reply again with only the JSON object."},
+        ]
+        text2 = self.chat(retry, schema, max_tokens, 0.1, cancelled=cancelled)
+        try:
+            return parse_json(text2)
+        except LLMError:
+            for candidate in (text2, text):
+                partial = repair_json(candidate)
+                if partial is not None:
+                    self.last_truncated = True
+                    return partial
+            raise
 
 
 def _with_json_instruction(messages: list[dict], schema: dict) -> list[dict]:
@@ -274,6 +342,9 @@ class OpenAICompatible(Backend):
         msg = data["choices"][0]["message"]
         return msg.get("content") or ""
 
+    def _finish_reason(self, data: dict) -> Optional[str]:
+        return ((data.get("choices") or [{}])[0]).get("finish_reason")
+
     def _parse_stream(self, resp, on_progress=None):
         writing = False
         for event in _sse_lines(resp):
@@ -284,6 +355,8 @@ class OpenAICompatible(Backend):
                     on_progress(min(1.0, max(0.0, ((prog.get("processed") or 0) - cache) / (total - cache))))
             choices = event.get("choices") or []
             if choices:
+                if choices[0].get("finish_reason"):
+                    self.last_finish = choices[0]["finish_reason"]
                 delta = choices[0].get("delta") or {}
                 piece = delta.get("content")
                 if piece:
@@ -308,6 +381,7 @@ class OpenAICompatible(Backend):
 
 class BuiltinLlama(OpenAICompatible):
     name = "builtin"
+    exact_tokens = True  # counted by llama-server's own tokenizer
 
     def __init__(self, model_key: str):
         super().__init__(model_key, "")
@@ -408,6 +482,9 @@ class Ollama(Backend):
     def _parse(self, data: dict) -> str:
         return (data.get("message") or {}).get("content", "")
 
+    def _finish_reason(self, data: dict) -> Optional[str]:
+        return data.get("done_reason")
+
     def _parse_stream(self, resp, on_progress=None):
         resp.encoding = "utf-8"
         for raw in resp.iter_lines(decode_unicode=True):
@@ -421,6 +498,7 @@ class Ollama(Backend):
             if piece:
                 yield piece
             if event.get("done"):
+                self.last_finish = event.get("done_reason")
                 break
 
 

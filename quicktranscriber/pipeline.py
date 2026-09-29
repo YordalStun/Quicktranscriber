@@ -634,7 +634,8 @@ def stage_notes(meeting: dict, opts: dict, ctx: JobContext, force: bool) -> None
     except InterruptedError:
         raise JobCancelled()
     except llm_client.LLMError as exc:
-        raise UserFacingError(str(exc))
+        _notes_failed(mid, str(exc))
+        return
     language = opts.get("notes_language")
     if not language or language == "auto":
         language = meeting.get("language") or None
@@ -652,7 +653,8 @@ def stage_notes(meeting: dict, opts: dict, ctx: JobContext, force: bool) -> None
     except InterruptedError:
         raise JobCancelled()
     except llm_client.LLMError as exc:
-        raise UserFacingError(f"Writing notes failed: {exc}")
+        _notes_failed(mid, str(exc))
+        return
     stats = notes.pop("_stats", {})
     meta = {
         "status": "ready",
@@ -673,6 +675,18 @@ def stage_notes(meeting: dict, opts: dict, ctx: JobContext, force: bool) -> None
         "UPDATE meetings SET notes = ?, notes_meta = ?, summary = ?, title = ? WHERE id = ?",
         (db.dumps(notes), db.dumps(meta), summary, title, mid),
     )
+
+
+def _notes_failed(mid: str, reason: str) -> None:
+    """The transcript is fine, so the meeting stays usable: show why and let the user try again."""
+    log.warning("Writing notes failed for %s: %s", mid, reason)
+    row = db.one("SELECT notes, notes_meta FROM meetings WHERE id = ?", (mid,))
+    if row and row["notes"]:
+        meta = db.loads(row["notes_meta"], {})  # keep the notes written before
+        meta["last_error"] = reason
+        _set_notes_meta(mid, meta)
+    else:
+        _set_notes_meta(mid, {"status": "failed", "reason": reason})
 
 
 def _set_notes_meta(mid: str, meta: dict) -> None:

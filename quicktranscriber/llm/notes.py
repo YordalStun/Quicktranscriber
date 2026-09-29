@@ -276,6 +276,32 @@ def _instructions(tpl: dict, extra: str) -> str:
     return "\n".join(parts)
 
 
+def _reserve(ctx: int, base: int, share: int) -> int:
+    """Room kept free in the context for the AI's answer: ``base``, less in a small context."""
+    return max(256, min(base, ctx // share))
+
+
+def _max_out(backend: Backend, messages: list[dict], base: int, share: int) -> int:
+    """Answer length limit. Notes for a long, busy meeting can need more than ``base``, so when
+    the prompt size is known exactly allow up to twice as much, as far as the context has room."""
+    ctx = backend.context_size()
+    reserve = _reserve(ctx, base, share)
+    if not backend.exact_tokens:
+        return reserve
+    used = backend.count_tokens("\n".join(m["content"] for m in messages)) + 64
+    return max(256, min(base * 2, ctx - used))
+
+
+def _chapters_from_topics(partials: list[dict], limit: int) -> list[dict]:
+    """Chapters from the topics noted for each part (when the final notes have none)."""
+    topics = [t for p in partials for t in (p.get("topics") or [])
+              if isinstance(t, dict) and (t.get("title") or "").strip() and parse_time(t.get("time")) is not None]
+    topics.sort(key=lambda t: parse_time(t.get("time")))
+    if len(topics) > limit > 1:
+        topics = [topics[round(i * (len(topics) - 1) / (limit - 1))] for i in range(limit)]
+    return [{"time": t["time"], "title": t["title"], "summary": ""} for t in topics]
+
+
 def generate(
     backend: Backend,
     segments: list[dict],
@@ -306,15 +332,18 @@ def generate(
     overhead = 900
     started = time.time()
     comfortable = backend.comfortable_tokens()
-    single_budget = min(ctx - overhead - detail["final_out"], comfortable)
-    stats = {"context": ctx, "transcript_tokens": total_tokens}
+    final_reserve = _reserve(ctx, detail["final_out"], 3)
+    single_budget = min(ctx - overhead - final_reserve, comfortable)
+    stats: dict[str, Any] = {"context": ctx, "transcript_tokens": total_tokens}
+    cut_short = False
 
     if total_tokens <= single_budget:
         report(0.05, "Writing the notes")
         notes = _final_pass(backend, full_text, tpl, detail, lang, extra, duration, report, cancelled, direct=True)
+        cut_short = backend.last_truncated
         stats["parts"] = 1
     else:
-        budget = max(1000, min(ctx - overhead - detail["map_out"], comfortable))
+        budget = max(1000, min(ctx - overhead - _reserve(ctx, detail["map_out"], 4), comfortable))
         # spread the transcript evenly over the parts
         parts = max(2, -(-total_tokens // budget))
         budget = min(budget, int(total_tokens / parts * 1.08) + 200)
@@ -355,18 +384,24 @@ def generate(
                 "- topics: the main topics in order, each with the timestamp where it starts\n"
                 f"{lang}\n\nTranscript:\n{text}"
             )
+            messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
             part = backend.chat_json(
-                [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-                map_schema(tpl, detail), max_tokens=detail["map_out"], cancelled=cancelled, on_token=on_token,
-                on_progress=on_progress,
+                messages, map_schema(tpl, detail), max_tokens=_max_out(backend, messages, detail["map_out"], 4),
+                cancelled=cancelled, on_token=on_token, on_progress=on_progress,
             )
+            cut_short = cut_short or backend.last_truncated
             partials.append(_clean_partial(part))
         report(0.8, "Combining the notes")
-        partials = _condense(backend, partials, ctx - overhead - detail["final_out"], tpl, detail, lang, extra,
+        partials = _condense(backend, partials, ctx - overhead - final_reserve, tpl, detail, lang, extra,
                              cancelled)
         notes = _final_pass(backend, json.dumps(partials, ensure_ascii=False), tpl, detail, lang, extra, duration,
                             report, cancelled, direct=False)
+        cut_short = cut_short or backend.last_truncated
+        if isinstance(notes, dict) and not notes.get("chapters"):
+            notes["chapters"] = _chapters_from_topics(partials, detail["chapters"])
     notes = _clean_final(notes, duration)
+    if cut_short:
+        stats["cut_short"] = True  # an answer ran out of room; only its complete part was kept
     stats["seconds"] = round(time.time() - started, 1)
     notes["_stats"] = stats
     return notes
@@ -404,10 +439,10 @@ def _final_pass(backend, content, tpl, detail, lang, extra, duration, report, ca
             done = min(1.0, produced[0] / (detail["final_out"] * 0.6))
             report(min(0.98, base + reading + (0.95 - base - reading) * done), "Writing the notes")
 
+    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
     return backend.chat_json(
-        [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-        final_schema(tpl, detail), max_tokens=detail["final_out"], cancelled=cancelled, on_token=on_token,
-        on_progress=on_progress,
+        messages, final_schema(tpl, detail), max_tokens=_max_out(backend, messages, detail["final_out"], 3),
+        cancelled=cancelled, on_token=on_token, on_progress=on_progress,
     )
 
 
@@ -439,9 +474,10 @@ def _condense(backend, partials, budget, tpl, detail, lang, extra, cancelled) ->
                 "the combined span. Remove duplicates but keep every concrete detail, decision, task and "
                 f"timestamp.\n{extra}\n{lang}\n\nNotes (JSON):\n{json.dumps(g, ensure_ascii=False)}"
             )
+            messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
             merged.append(_clean_partial(backend.chat_json(
-                [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-                map_schema(tpl, detail), max_tokens=detail["map_out"], cancelled=cancelled,
+                messages, map_schema(tpl, detail), max_tokens=_max_out(backend, messages, detail["map_out"], 4),
+                cancelled=cancelled,
             )))
         partials = merged
     return partials

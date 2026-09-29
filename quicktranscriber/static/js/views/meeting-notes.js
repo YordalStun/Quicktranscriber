@@ -33,6 +33,10 @@ export function renderNotes(body, ctx, job) {
       inner = `<div class="card pad-lg" style="text-align:center"><div class="big-icon" style="width:64px;height:64px;margin:0 auto 14px;border-radius:20px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)">${icon('sparkles', 28)}</div>
         <h3>Get AI meeting notes</h3><p class="muted">${esc(meta.reason || 'Choose a local AI model to write summaries, decisions and action items.')}</p>
         <div class="btn-row" style="justify-content:center;margin-top:14px"><a class="btn primary" href="#/models">${icon('download', 16)} Choose an AI model</a><button class="btn" data-generate>${icon('refresh', 16)} Try again</button></div></div>`;
+    } else if (meta.status === 'failed') {
+      inner = `<div class="card pad-lg" style="text-align:center"><div class="big-icon" style="width:64px;height:64px;margin:0 auto 14px;border-radius:20px;display:grid;place-items:center;background:var(--bad-soft, var(--accent-soft));color:var(--bad, var(--accent))">${icon('alert', 28)}</div>
+        <h3>The notes couldn't be written</h3><p class="muted">${esc(meta.reason || '')}</p><p class="faint small">The transcript is fine. Try again, or choose another AI model.</p>
+        <div class="btn-row" style="justify-content:center;margin-top:14px"><button class="btn primary" data-generate>${icon('refresh', 16)} Try again</button><a class="btn" href="#/models">${icon('layers', 16)} AI models</a></div></div>`;
     } else if (meta.status === 'empty') {
       inner = `<div class="empty"><h2>Nothing to summarise</h2><p>${esc(meta.reason || '')}</p></div>`;
     } else {
@@ -45,6 +49,9 @@ export function renderNotes(body, ctx, job) {
   }
 
   const blocks = [];
+  if (meta.last_error && !job) {
+    blocks.push(`<div class="callout bad" style="margin-bottom:14px">${icon('alert')}<div><b>Rewriting the notes failed</b>${esc(meta.last_error)}</div></div>`);
+  }
   if (n.summary) {
     blocks.push(`<div class="note-block summary" data-block="summary"><h4>${icon('sparkles', 14)} Summary</h4>
       ${n.summary.split(/\n+/).map((p) => `<p>${esc(p)}</p>`).join('')}${editBtn('summary')}</div>`);
@@ -77,7 +84,7 @@ export function renderNotes(body, ctx, job) {
   if (!blocks.length) blocks.push('<div class="card muted">The AI could not find anything to note in this meeting.</div>');
   const tpl = store.templates.find((t) => t.id === meta.template)?.name;
   body.innerHTML = `${banner}<div class="notes">${blocks.join('')}
-    <div class="notes-foot">${icon('sparkles', 13)} <span>Written by ${esc(meta.model || 'AI')}${tpl ? ` · ${esc(tpl)}` : ''}${meta.seconds ? ` · took ${fmtDuration(meta.seconds)}` : ''}${meta.parts > 1 ? ` · read in ${meta.parts} parts` : ''}</span>
+    <div class="notes-foot">${icon('sparkles', 13)} <span>Written by ${esc(meta.model || 'AI')}${tpl ? ` · ${esc(tpl)}` : ''}${meta.seconds ? ` · took ${fmtDuration(meta.seconds)}` : ''}${meta.parts > 1 ? ` · read in ${meta.parts} parts` : ''}${meta.cut_short ? ' · shortened to fit' : ''}</span>
       <span class="spacer"></span>
       <button class="btn ghost sm" data-copy>${icon('copy', 14)} Copy</button>
       <button class="btn ghost sm" data-regen ${job ? 'disabled' : ''}>${icon('refresh', 14)} Rewrite…</button></div>
