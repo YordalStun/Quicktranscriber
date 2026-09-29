@@ -34,7 +34,7 @@ class JobContext:
     def stage(self, key: str, label: str) -> None:
         live = self.runner.live.setdefault(self.job_id, {})
         live.update(stage=key, stage_label=label, progress=0.0, message=label, partial=[], stage_started=time.time(),
-                    eta=None)
+                    eta=None, eta_base=None, eta_last=None)
         stages = live.setdefault("stages", [])
         for s in stages:
             if s["key"] == key:
@@ -60,12 +60,18 @@ class JobContext:
             if not lines or lines[-1] != partial:
                 lines.append(partial)
                 del lines[:-6]
-        started = live.get("stage_started") or time.time()
+        now = time.time()
+        base_t, base_v = live.get("eta_base") or (live.get("stage_started") or now, 0.0)
+        last_t, last_v = live.get("eta_last") or (base_t, base_v)
+        if value - last_v > 0.15 and now - last_t < 3:
+            base_t, base_v = now, value  # work was skipped (e.g. parts already done): time the rest from here
+        live["eta_base"], live["eta_last"] = (base_t, base_v), (now, value)
         if eta is not None:
             live["eta"] = eta
-        elif value > 0.03:
-            elapsed = time.time() - started
-            live["eta"] = elapsed / value * (1 - value)
+        elif value - base_v > 0.03:
+            live["eta"] = (now - base_t) / (value - base_v) * (1 - value)
+        else:
+            live["eta"] = None
         self._persist()
 
     def info(self, **values: Any) -> None:

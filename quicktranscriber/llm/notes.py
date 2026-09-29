@@ -337,10 +337,39 @@ def _max_out(backend: Backend, messages: list[dict], base: int, share: int) -> i
     return max(256, min(base * 2, ctx - used))
 
 
-def _chapters_from_topics(partials: list[dict], limit: int) -> list[dict]:
-    """Chapters from the topics noted for each part (when the final notes have none)."""
-    topics = [t for p in partials for t in (p.get("topics") or [])
-              if isinstance(t, dict) and (t.get("title") or "").strip() and parse_time(t.get("time")) is not None]
+def _meeting_chapters(final: list, partials: list[dict], duration: float, limit: int) -> list:
+    """Chapters for a long meeting read in parts.
+
+    Small models tend to crowd the final chapters into the first part of the
+    meeting. The topics noted for each part are spread over all of it, so when the
+    final chapters stop early they are rebuilt from those topics (keeping the
+    final summaries where the times match).
+    """
+    final = [c for c in final if isinstance(c, dict)]
+    times = [t for t in (parse_time(c.get("time")) for c in final) if t is not None]
+    if times and max(times) >= duration * 0.6:
+        return final
+    topics = _chapters_from_topics(partials, max(limit, min(24, round(duration / 480))), until=duration - 60)
+    if not topics:
+        return final
+    for t in topics:
+        start = parse_time(t["time"])
+        for c in final:
+            ct = parse_time(c.get("time"))
+            if ct is not None and abs(ct - start) <= 90 and (c.get("summary") or "").strip():
+                t["summary"] = c["summary"].strip()
+                break
+    return topics
+
+
+def _chapters_from_topics(partials: list[dict], limit: int, until: float = float("inf")) -> list[dict]:
+    """Chapters from the topics noted for each part, spread evenly (none in the last minute)."""
+    topics = []
+    for p in partials:
+        for t in p.get("topics") or []:
+            start = parse_time(t.get("time")) if isinstance(t, dict) else None
+            if start is not None and start < until and (t.get("title") or "").strip():
+                topics.append(t)
     topics.sort(key=lambda t: parse_time(t.get("time")))
     if len(topics) > limit > 1:
         topics = [topics[round(i * (len(topics) - 1) / (limit - 1))] for i in range(limit)]
@@ -453,8 +482,8 @@ def generate(
         notes = _final_pass(backend, json.dumps(partials, ensure_ascii=False), tpl, detail, lang, extra, duration,
                             report, cancelled, direct=False)
         cut_short = cut_short or backend.last_truncated
-        if isinstance(notes, dict) and not notes.get("chapters"):
-            notes["chapters"] = _chapters_from_topics(partials, detail["chapters"])
+        if isinstance(notes, dict):
+            notes["chapters"] = _meeting_chapters(notes.get("chapters") or [], partials, duration, detail["chapters"])
     notes = _clean_final(notes, duration)
     if cut_short:
         stats["cut_short"] = True  # an answer ran out of room; only its complete part was kept
@@ -479,7 +508,8 @@ def _final_pass(backend, content, tpl, detail, lang, extra, duration, report, ca
         f"- chapters: the meeting's main parts in time order, spread across the WHOLE meeting from 00:00:00 to "
         f"{fmt_time(duration)}; each with the timestamp where it starts, a short title and {detail['chapter']} "
         "of summary\n"
-        + ("" if direct else "Merge duplicates between parts, keep every concrete detail.\n")
+        + ("" if direct else "For chapters, use the topics noted for each part - at least one chapter from every "
+           "part. Merge duplicates between parts, keep every concrete detail.\n")
         + f"{lang}\n\n{tail}\n{content}"
     )
     produced = [0]
